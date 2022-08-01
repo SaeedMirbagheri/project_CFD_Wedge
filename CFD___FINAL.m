@@ -1,3 +1,4 @@
+
 clc 
 clear                               
 close all
@@ -5,15 +6,23 @@ disp('programmer:Seid Saeed Mirbagheri (400126116)')
 
 deg=1;  % 1 for 15 degree
         % 2 for 35 degree
-n_N=5;
+        % 3 for 10
+if deg~=3    
+    n_N=5; % Number of Mesh
+else
+    n_N=1;    
+end
+
 Fac=zeros(4,n_N);
 U_half=zeros(4,n_N);
 H=zeros(1,n_N); Error1=zeros(4,n_N,n_N);
+
+
 %% SET FREESTREAM CONDITIONS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-free_rho      = 1.2;                            % kg/m^3
+free_rho      = 2.3;                            % kg/m^3
 free_T        = 300;                         % Kelvin
 free_P        = 100000;                         % Pa
-free_M        = 1.2;                            % Mach
+free_M        = 2.5;                            % Mach
 free_aoa      = 0;                              % deg
 
 free_a        = speedsound(free_P,free_rho);    % m/s
@@ -36,10 +45,10 @@ fprintf('Density:      %10.2f kg/m^3\n\n',free_rho);
 
 %% SET ITERATION VARIABLES %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % Iteration variables
-iterations   = 2000;             % Number of iterations to run
+iterations   = 1000;             % Number of iterations to run
                                
-timestep     = 1e-3;            % Timestep for global timestepping
-CFL          = 0.3;             % Courant number
+timestep     = 1e-5;            % Timestep for global timestepping
+CFL          = 0.5;             % Courant number
 
 m_stage      = 4;               % m-stage time stepping
                                 % e.g. 1 for Euler step
@@ -81,7 +90,7 @@ if deg==1
     fid = fopen('C:\Users\King\Desktop\data for run matlab\Wedge15_5.x');
     end
 
-else
+elseif deg==2
     if ii==1
     fid = fopen('C:\Users\King\Desktop\data for run matlab\Wedge35_1.x');
     elseif ii==2
@@ -93,6 +102,9 @@ else
     else
     fid = fopen('C:\Users\King\Desktop\data for run matlab\Wedge35_5.x');
     end
+else
+     fid = fopen('C:\Users\King\Desktop\data for run matlab\Wedge10.x');
+   
 end
     
     if fid >= 1
@@ -111,13 +123,13 @@ end
             y = fscanf(fid, '%f', [npi,npj]);
             z = fscanf(fid, '%f', [npi,npj]);
             disp('Grid read successfully');
-          
-           
-           x=x.';
-           y=y.';
-           nn=npi;
-           npi=npj;
-           npj=nn;
+            rho_y=zeros(npi-1,n_N);
+            U_y=zeros(npi-1,n_N);
+            V_y=zeros(npi-1,n_N);
+            P_y=zeros(npi-1,n_N);
+            X_y=zeros(npi-1,n_N);
+            Fac_y=zeros(npi-1);
+            Fac_x=zeros(npi-1);
           
         end
         fclose(fid);
@@ -299,7 +311,11 @@ for iter = start_iter:(end_iter + iterations)
     ti2 = cputime-ti1;
     Error1(:,iter,ii)=[resid_i(1)/resid_0(1);resid_i(2)/resid_0(2);resid_i(3)/resid_0(3);resid_i(4)/resid_0(4)];
        
-  if(max(abs(Error1)))<=1e-3 
+  if(max(abs(Error1(:,iter,ii))))<=1e-4 
+      break;
+  end
+  if(isreal(con_density))==0 ||  max(abs(Error1(:,iter)))>200
+      disp('The solution is divergent')
       break;
   end
 end
@@ -308,7 +324,6 @@ start_iter = iter;
 end_iter = iter;
 
 %% Mach matrix calculation
- u_final=con_uvel;
  h=mean(mean(e_ylen));
 
 %% PLOT PRIMITIVE STATE VECTOR CONTOURS %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
@@ -339,45 +354,87 @@ end_iter = iter;
     axis image;
     colorbar('peer',gca,'SouthOutside'); 
     title(sprintf('V Velocity (m/s) h= %d ' ,h))
-
+    
     figure(4);
     subplot(2,3,ii);
     contourf(xmid',ymid',con_pres');
     axis image;
     colorbar('peer',gca,'SouthOutside'); 
-    title(sprintf('Pressure (Pa) h= %d ' ,h))
+    title(sprintf(' Pressure h= %d ' ,h))
+
+    
 
 
     % Error 
-    ite=1:iterations;
+    ite=1:iter;
     figure(10);
     subplot(2,3,ii)
-    plot(ite,Error1(1,:,ii),'r')
+    plot(ite,Error1(1,1:iter,ii),'r')
     hold on
-    plot(ite,Error1(2,:,ii),'b')
-    plot(ite,Error1(3,:,ii),'g')
-    plot(ite,Error1(4,:,ii),'k')
+    plot(ite,Error1(2,1:iter,ii),'b')
+    plot(ite,Error1(3,1:iter,ii),'g')
+    plot(ite,Error1(4,1:iter,ii),'k')
     legend('cont. resid','x-mom resid','y-mom resid','energy resid')
     xlabel('Iterations')
     ylabel('Residual Error')
     title(sprintf('Residual Error(Iterations) for h= %d ' ,h))
 
-    yy=0:h:3;
-    n_points=length(yy);
+    yy=abs(y-0.5);
+    xx=abs(x-0.5);
+   
+    for i=1:nci
+       Fac_y(i)=find(yy(i,:)==min(yy(i,:)),1);
+       Fac_x(i)=find(xx(:,i)==min(xx(:,i)),1);
+    end
+    for i=1:nci
+        U_y(i,ii)=con_uvel(i,Fac_y(i));
+        V_y(i,ii)=con_vvel(i,Fac_y(i));
+        P_y(i,ii)=con_pres(i,Fac_y(i));
+        rho_y(i,ii)=con_density(i,Fac_y(i));
+        X_y(i)= x(i,Fac_y(i));
+    end
+    
+
+    figure(5);
+    subplot(2,3,ii);
+    plot(X_y',U_y(:,ii)');
+    grid on
+    title(sprintf('U(x) in y=0.5 (Pa) h= %d ' ,h))
+
+    figure(6);
+    subplot(2,3,ii);
+    plot(X_y',P_y(:,ii)');
+    grid on
+    title(sprintf('Pressure(x) in y=0.5 (Pa) h= %d ' ,h))
+    
+
+    figure(7);
+    subplot(2,3,ii);
+    plot(X_y',V_y(:,ii)');
+    grid on
+    title(sprintf('V(x) in y=0.5 (Pa) h= %d ' ,h))
+
+    figure(8);
+    subplot(2,3,ii);
+    plot(X_y',rho_y(:,ii)');
+    grid on
+    title(sprintf('Density(x) in y=0.5 (Pa) h= %d ' ,h))
+    
     H(ii)=h;
     Fac(:,ii)=[ ncj/2 ;ncj*(5/8); ncj*(3/4);ncj*(7/8)];
+    Fac=floor(Fac);
 for i=1:4
     if deg==1
-        U_half(i,ii)=u_final(nci,Fac(i,ii));
+        U_half(i,ii)=con_uvel(nci*7/8,Fac(i,ii));
     else
-        U_half(i,ii)=u_final((npi+1)/2,Fac(i,ii));
+        U_half(i,ii)=con_uvel(floor((npi+1)/2),Fac(i,ii));
     end
 
 end
 
 
 end
-
+if n_N==5 
 Er=Error(U_half,n_N);
 R_e_delta_y=Error_Slope( Er,H,n_N );
 
@@ -403,3 +460,4 @@ hold on
 grid on
 end
 legend('y=1.5','y=1.875','y=2.25','y=2.625')
+end
